@@ -2,19 +2,18 @@ import json
 import time
 import boto3
 import yfinance as yf
-from datetime import datetime,timezone
+from datetime import datetime, timezone
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-STREAM_NAME = "btc-market-stream"
+QUEUE_URL = "https://sqs.eu-west-2.amazonaws.com/329599618422/btc-market-queue"
 REGION = "eu-west-2"
-INTERVAL_SECONDS = 60  # fetch every 60 seconds
+INTERVAL_SECONDS = 60
 
-# ── KINESIS CLIENT ────────────────────────────────────────────────────────────
-kinesis = boto3.client("kinesis", region_name=REGION)
+# ── SQS CLIENT ────────────────────────────────────────────────────────────────
+sqs = boto3.client("sqs", region_name=REGION)
 
 
 def fetch_btc_tick() -> dict | None:
-    """Fetch the latest BTC-USD tick from Yahoo Finance."""
     try:
         ticker = yf.Ticker("BTC-USD")
         df = ticker.history(period="1d", interval="1m")
@@ -41,34 +40,29 @@ def fetch_btc_tick() -> dict | None:
         return None
 
 
-def send_to_kinesis(record: dict) -> None:
-    """Send a single record to the Kinesis stream."""
+def send_to_sqs(record: dict) -> None:
     try:
-        response = kinesis.put_record(
-            StreamName=STREAM_NAME,
-            Data=json.dumps(record),
-            PartitionKey="btc-partition",
+        response = sqs.send_message(
+            QueueUrl=QUEUE_URL,
+            MessageBody=json.dumps(record),
         )
-        print(f"[OK] Sent to Kinesis | shard={response['ShardId']} | {record['timestamp']} | close=${record['close']}")
+        print(f"[OK] Sent to SQS | MessageId={response['MessageId']} | {record['timestamp']} | close=${record['close']}")
 
     except Exception as e:
-        print(f"[ERROR] Failed to send to Kinesis: {e}")
+        print(f"[ERROR] Failed to send to SQS: {e}")
 
 
 def run():
-    """Main loop — fetch BTC data and stream to Kinesis every 60 seconds."""
-    print(f"[START] BTC producer running — streaming to '{STREAM_NAME}' every {INTERVAL_SECONDS}s")
+    print(f"[START] BTC producer running — streaming to SQS every {INTERVAL_SECONDS}s")
     print("[INFO] Press Ctrl+C to stop\n")
 
     while True:
         tick = fetch_btc_tick()
-
         if tick:
             print(f"[DATA] {tick}")
-            send_to_kinesis(tick)
+            send_to_sqs(tick)
         else:
             print("[SKIP] No data this tick")
-
         time.sleep(INTERVAL_SECONDS)
 
 

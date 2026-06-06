@@ -1,5 +1,4 @@
 import json
-import base64
 import boto3
 import os
 from datetime import datetime, timezone
@@ -12,7 +11,7 @@ DYNAMODB_TABLE = os.environ.get("DYNAMODB_TABLE", "btc-market-data")
 S3_BUCKET = os.environ.get("S3_BUCKET", "btc-raw-archive")
 SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN", "")
 ZSCORE_THRESHOLD = float(os.environ.get("ZSCORE_THRESHOLD", "2.5"))
-ROLLING_WINDOW = 20  # number of data points for rolling stats
+ROLLING_WINDOW = 20
 
 
 # ── AWS CLIENTS ───────────────────────────────────────────────────────────────
@@ -22,16 +21,15 @@ sns = boto3.client("sns")
 table = dynamodb.Table(DYNAMODB_TABLE)
 
 
-# ── ROLLING WINDOW (in-memory per Lambda instance) ───────────────────────────
+# ── ROLLING WINDOW ────────────────────────────────────────────────────────────
 price_window = deque(maxlen=ROLLING_WINDOW)
 
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
-def decode_record(encoded_data: str) -> dict | None:
-    """Decode base64 Kinesis record into a dict."""
+def decode_record(body: str) -> dict | None:
+    """Decode SQS message body into a dict."""
     try:
-        raw = base64.b64decode(encoded_data).decode("utf-8")
-        return json.loads(raw)
+        return json.loads(body)
     except Exception as e:
         print(f"[ERROR] Failed to decode record: {e}")
         return None
@@ -60,7 +58,7 @@ def validate_record(record: dict) -> bool:
 def compute_zscore(price: float) -> float | None:
     """Compute z-score of price against rolling window."""
     if len(price_window) < ROLLING_WINDOW:
-        return None  # not enough data yet
+        return None
 
     mean = statistics.mean(price_window)
     stdev = statistics.stdev(price_window)
@@ -86,7 +84,7 @@ def enrich_record(record: dict, zscore: float | None) -> dict:
 def save_to_dynamodb(record: dict) -> None:
     """Write cleaned enriched record to DynamoDB."""
     try:
-        date = record["timestamp"][:10]  # YYYY-MM-DD
+        date = record["timestamp"][:10]
 
         table.put_item(Item={
             "date": date,
@@ -155,7 +153,7 @@ def send_anomaly_alert(record: dict) -> None:
 # ── MAIN HANDLER ──────────────────────────────────────────────────────────────
 def lambda_handler(event, context):
     """
-    Triggered by Kinesis stream.
+    Triggered by SQS queue.
     Each event contains a batch of records.
     """
     processed = 0
@@ -164,10 +162,10 @@ def lambda_handler(event, context):
 
     print(f"[START] Processing batch of {len(event['Records'])} records")
 
-    for kinesis_record in event["Records"]:
+    for sqs_record in event["Records"]:
 
         # 1. Decode
-        record = decode_record(kinesis_record["kinesis"]["data"])
+        record = decode_record(sqs_record["body"])
         if record is None:
             skipped += 1
             continue

@@ -30,19 +30,16 @@ processor.price_window = deque(maxlen=20)
 
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
-def make_kinesis_event(records: list) -> dict:
-    """Wrap a list of dicts into a mock Kinesis event."""
-    kinesis_records = []
+def make_sqs_event(records: list) -> dict:
+    """Wrap a list of dicts into a mock SQS event."""
+    sqs_records = []
     for r in records:
-        encoded = base64.b64encode(json.dumps(r).encode("utf-8")).decode("utf-8")
-        kinesis_records.append({
-            "kinesis": {
-                "data": encoded,
-                "sequenceNumber": "1",
-                "approximateArrivalTimestamp": 1234567890,
-            }
+        sqs_records.append({
+            "body": json.dumps(r),
+            "messageId": "test-message-id",
+            "receiptHandle": "test-receipt-handle",
         })
-    return {"Records": kinesis_records}
+    return {"Records": sqs_records}
 
 
 def make_valid_record(**overrides) -> dict:
@@ -65,17 +62,16 @@ class TestDecodeRecord:
 
     def test_valid_record_decodes_correctly(self):
         record = make_valid_record()
-        encoded = base64.b64encode(json.dumps(record).encode()).decode()
-        result = processor.decode_record(encoded)
+        body = json.dumps(record)
+        result = processor.decode_record(body)
         assert result == record
 
-    def test_invalid_base64_returns_none(self):
-        result = processor.decode_record("not-valid-base64!!!")
+    def test_invalid_json_returns_none(self):
+        result = processor.decode_record("not valid json {{")
         assert result is None
 
-    def test_invalid_json_returns_none(self):
-        bad_json = base64.b64encode(b"not json at all").decode()
-        result = processor.decode_record(bad_json)
+    def test_empty_string_returns_none(self):
+        result = processor.decode_record("")
         assert result is None
 
 
@@ -175,7 +171,7 @@ class TestLambdaHandler:
         processor.send_anomaly_alert = MagicMock()
 
         record = make_valid_record(close=42100.0)
-        event = make_kinesis_event([record])
+        event = make_sqs_event([record])
 
         result = processor.lambda_handler(event, {})
 
@@ -193,7 +189,7 @@ class TestLambdaHandler:
         processor.send_anomaly_alert = MagicMock()
 
         record = make_valid_record(close=200000.0, high=200500.0, low=199000.0)
-        event = make_kinesis_event([record])
+        event = make_sqs_event([record])
 
         result = processor.lambda_handler(event, {})
 
@@ -206,7 +202,7 @@ class TestLambdaHandler:
         processor.send_anomaly_alert = MagicMock()
 
         record = make_valid_record(close=-999.0)
-        event = make_kinesis_event([record])
+        event = make_sqs_event([record])
 
         result = processor.lambda_handler(event, {})
 
@@ -226,7 +222,7 @@ class TestLambdaHandler:
             make_valid_record(close=-500.0),
             make_valid_record(close=42050.0),
         ]
-        event = make_kinesis_event(records)
+        event = make_sqs_event(records)
 
         result = processor.lambda_handler(event, {})
 
