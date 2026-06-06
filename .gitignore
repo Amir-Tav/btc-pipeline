@@ -1,0 +1,8 @@
+god/
+__pycache__/
+*.pyc
+.env
+cdk.out/
+*.egg-info/
+.DS_Store
+rootkey.csv
