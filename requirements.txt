@@ -1,0 +1,8 @@
+boto3
+yfinance
+pandas
+numpy
+scikit-learn
+aws-cdk-lib
+constructs
+pytest

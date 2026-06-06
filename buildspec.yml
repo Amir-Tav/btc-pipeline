@@ -1,0 +1,43 @@
+version: 0.2
+
+env:
+  variables:
+    PYTHONDONTWRITEBYTECODE: "1"
+
+phases:
+
+  install:
+    runtime-versions:
+      python: 3.11
+    commands:
+      - echo "Installing dependencies..."
+      - pip install --upgrade pip
+      - pip install pytest boto3 scikit-learn numpy yfinance
+      - pip install aws-cdk-lib constructs
+
+  pre_build:
+    commands:
+      - echo "Running tests..."
+      - pytest tests/ -v --tb=short
+      - echo "Tests passed."
+
+  build:
+    commands:
+      - echo "Deploying infrastructure..."
+      - npm install -g aws-cdk
+      - cdk bootstrap aws://$AWS_ACCOUNT_ID/eu-west-2
+      - cdk deploy --require-approval never
+
+  post_build:
+    commands:
+      - echo "Deployment complete."
+      - echo "Build finished at $(date)"
+
+artifacts:
+  files:
+    - "**/*"
+  exclude-paths:
+    - "god/**"
+    - "**/__pycache__/**"
+    - "**/*.pyc"
+    - ".pytest_cache/**"
